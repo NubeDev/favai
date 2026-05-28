@@ -75,29 +75,73 @@ favai serve
 
 ### Pointing a host at favai
 
-**Claude Code** (`~/.config/claude-code/config.json`):
+The fastest path is `favai doctor`, which checks and writes the MCP
+config for each supported host. It only touches the `favai` key; any
+other MCP servers in the same file are left alone.
 
-```json
-{
-  "mcpServers": {
-    "favai": {
-      "command": "favai",
-      "args": ["serve"]
-    }
-  }
-}
+```sh
+# Show what's wired where, across all hosts and scopes:
+favai doctor
+
+# Add favai to a host (default scope is --global):
+favai doctor install copilot --local            # → ./.vscode/mcp.json
+favai doctor install copilot --global           # → ~/.config/Code/User/mcp.json
+favai doctor install claude  --global           # → ~/.config/claude-code/config.json
+favai doctor install claude  --local            # → ./.mcp.json
+favai doctor install codex   --global           # → ~/.config/codex/mcp.toml
+
+# Remove again:
+favai doctor uninstall copilot --local
 ```
 
-**Codex CLI** (`~/.config/codex/mcp.toml`):
+`--local` writes inside the current working directory by default;
+use `--scope <dir>` to target another project root. The doctor
+records the *absolute path* of whichever `favai` binary is running
+the command, so reinstall after moving the binary.
+
+For reference, here is what each host config ends up containing:
+
+**Copilot (VS Code)** — `.vscode/mcp.json` (local) or
+`~/.config/Code/User/mcp.json` (global):
+
+```json
+{ "servers": { "favai": { "command": "/abs/path/favai", "args": ["serve"] } } }
+```
+
+**Claude Code** — `~/.config/claude-code/config.json` (global) or
+`.mcp.json` in the project root (local):
+
+```json
+{ "mcpServers": { "favai": { "command": "/abs/path/favai", "args": ["serve"] } } }
+```
+
+**Codex CLI** — `~/.config/codex/mcp.toml`:
 
 ```toml
 [servers.favai]
-command = "favai"
+command = "/abs/path/favai"
 args    = ["serve"]
 ```
 
-Copilot uses the same shape — point its MCP server config at the
-`favai` binary with `serve` as the only arg.
+### Running favai as a background daemon
+
+The MCP stdio transport is usually driven by the host — Claude Code,
+Codex, and Copilot all spawn `favai serve` themselves. If you also
+want periodic sync running independently of any attached host
+(useful on a shared machine, or to keep mirrors warm), run favai as
+a detached daemon:
+
+```sh
+favai start     # spawn favai in the background; writes a pid file
+favai status    # is it alive?
+favai stop      # SIGTERM the pid file
+```
+
+State lives under `~/.config/starter/favai/`:
+
+- `favai.pid` — process id of the running daemon
+- `favai.log` — combined stdout/stderr of the daemon process
+
 
 ## Trust model in one paragraph
 

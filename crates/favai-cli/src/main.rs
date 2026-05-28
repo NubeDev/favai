@@ -11,13 +11,25 @@
 //!                              # if omitted, uses the current quarantined hash)
 //! favai revoke  <skill-id> [bundle-hash]
 //!                              # revoke an approval; same hash defaulting rule
+//!
+//! favai doctor                 # check MCP host wiring (copilot/claude/codex)
+//! favai doctor install <host> [--global|--local] [--scope <dir>]
+//! favai doctor uninstall <host> [--global|--local]
+//!
+//! favai start                  # spawn a detached daemon (periodic sync)
+//! favai stop                   # signal the daemon to exit
+//! favai status                 # report daemon liveness
+//!
 //! favai help                   # this message
 //! ```
 //!
 //! The stdio transport is the MCP norm for desktop hosts (Claude
 //! Code, Codex CLI, Copilot). Point the host at the `favai` binary
 //! with `serve` as the only arg and it speaks JSON-RPC over
-//! stdin/stdout.
+//! stdin/stdout. `favai doctor install` writes that wiring for you.
+
+mod daemon;
+mod doctor;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,21 +64,39 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    let (config_flag, args) = strip_config_flag(&raw_args)?;
     let cmd = args.first().map(String::as_str).unwrap_or("serve");
 
-    // `help` must not require a config file — it is the user's
-    // recovery path when their config is wrong or missing.
+    // `help` and the host-wiring / daemon-control commands must not
+    // require a config file — they are the user's recovery paths
+    // when the config is wrong or missing.
     if matches!(cmd, "help" | "--help" | "-h") {
         print_help();
         return Ok(std::process::ExitCode::SUCCESS);
     }
+    if cmd == "doctor" {
+        let parsed = doctor::DoctorArgs::parse(&args)?;
+        return doctor::run(parsed);
+    }
+    if matches!(cmd, "stop" | "status") {
+        return match cmd {
+            "stop"   => daemon::stop(),
+            "status" => daemon::status(),
+            _        => unreachable!(),
+        };
+    }
+    if cmd == "start" {
+        let config_path = config_flag.clone().unwrap_or_else(default_config_path);
+        return daemon::start(&config_path);
+    }
 
-    let config_path = parse_config_flag(&args)?.unwrap_or_else(default_config_path);
+    let config_path = config_flag.unwrap_or_else(default_config_path);
     let config = FavaiConfig::from_file(&config_path)?;
 
     match cmd {
         "serve"        => serve(config).await,
+        "daemon-run"   => daemon_run(config).await,
         "sync"         => sync(config, args.get(1).cloned()).await,
         "list"         => list(config).await,
         "quarantined"  => quarantined(config).await,
@@ -104,6 +134,37 @@ async fn serve(config: FavaiConfig) -> Result<std::process::ExitCode, Box<dyn st
         "favai: starting MCP stdio loop"
     );
     run_stdio(tool_registry).await?;
+    agent.shutdown().await;
+    Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// `daemon-run` is the body of the detached child spawned by
+/// `favai start`. It boots the agent (which kicks off the
+/// periodic-sync loop) and then parks on SIGTERM / SIGINT. No MCP
+/// stdio — the host is not attached here.
+async fn daemon_run(config: FavaiConfig) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+    let (agent, skills) = boot(config).await?;
+    tracing::info!(
+        sources = agent.sources().len(),
+        approved_skills = skills.list().len(),
+        "favai: daemon up; awaiting shutdown signal"
+    );
+
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = signal(SignalKind::terminate())?;
+        let mut intr = signal(SignalKind::interrupt())?;
+        tokio::select! {
+            _ = term.recv() => tracing::info!("favai: SIGTERM"),
+            _ = intr.recv() => tracing::info!("favai: SIGINT"),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await?;
+    }
+
     agent.shutdown().await;
     Ok(std::process::ExitCode::SUCCESS)
 }
@@ -223,18 +284,25 @@ fn operator_principal() -> Principal {
     }
 }
 
-fn parse_config_flag(args: &[String]) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
-    let mut it = args.iter().peekable();
+/// Pull `--config <path>` / `--config=<path>` out of the argv and
+/// return the remaining tokens. Returns the chosen config path (if
+/// any) plus the trimmed arg vector — subcommands can then index
+/// positionally without worrying about the flag's location.
+fn strip_config_flag(args: &[String]) -> Result<(Option<PathBuf>, Vec<String>), Box<dyn std::error::Error>> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut cfg: Option<PathBuf> = None;
+    let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--config" {
             let p = it.next().ok_or("--config requires a path")?;
-            return Ok(Some(PathBuf::from(p)));
-        }
-        if let Some(rest) = a.strip_prefix("--config=") {
-            return Ok(Some(PathBuf::from(rest)));
+            cfg = Some(PathBuf::from(p));
+        } else if let Some(rest) = a.strip_prefix("--config=") {
+            cfg = Some(PathBuf::from(rest));
+        } else {
+            out.push(a.clone());
         }
     }
-    Ok(None)
+    Ok((cfg, out))
 }
 
 fn default_config_path() -> PathBuf {
@@ -253,7 +321,7 @@ fn print_help() {
          USAGE:\n  \
          favai [--config <path>] <command>\n\
          \n\
-         COMMANDS:\n  \
+         CORE COMMANDS:\n  \
          serve                    Boot the agent and serve MCP over stdio (default)\n  \
          sync <name>              Run one sync against the named source and exit\n  \
          list                     List configured sources\n  \
@@ -263,9 +331,23 @@ fn print_help() {
          revoke  <id> [<hash>]    Revoke an approval; same hash defaulting rule\n  \
          help                     Show this message\n\
          \n\
+         DOCTOR (host wiring):\n  \
+         doctor                       Status of MCP entries across all hosts\n  \
+         doctor install <host>        Add favai to a host's MCP config\n  \
+         doctor uninstall <host>      Remove favai from a host's MCP config\n  \
+           hosts:  copilot | claude | codex\n  \
+           flags:  --global (default) | --local [--scope <project-dir>]\n  \
+         \n\
+         DAEMON (background process):\n  \
+         start                    Spawn favai as a detached background daemon\n  \
+         stop                     Signal the running daemon to exit\n  \
+         status                   Report whether the daemon is running\n  \
+         \n\
          CONFIG:\n  \
          Defaults to $HOME/.config/starter/favai/config.toml.\n  \
          Approvals persist in $HOME/.config/starter/favai/approvals.jsonl.\n  \
+         Daemon pid:  $HOME/.config/starter/favai/favai.pid\n  \
+         Daemon log:  $HOME/.config/starter/favai/favai.log\n  \
          See favai-sync-and-registry.md for the schema.\n\
          "
     );

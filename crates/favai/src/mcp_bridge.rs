@@ -14,7 +14,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use starter_mcp::skills_bridge::{register_approved_skills, AddFavoriteTool};
+use starter_mcp::skills_bridge::{
+    register_approved_skills, register_approved_skills_as_prompts, AddFavoriteTool,
+};
 use starter_mcp::ToolRegistry;
 use starter_skills::{ApprovalStore, InMemoryApprovalStore, SkillRegistry};
 
@@ -112,13 +114,20 @@ pub async fn build_tool_registry(
 /// Build a fresh [`ToolRegistry`] off an already-loaded
 /// [`SkillRegistry`]. Called once at startup and again after every
 /// `SkillRegistry::reload()` driven by a sync, so revoked or newly
-/// quarantined bundles drop out of `tools/list` without a server
-/// restart.
+/// quarantined bundles drop out of `tools/list` **and**
+/// `prompts/list` without a server restart.
+///
+/// Each approved skill is registered twice: once as an MCP tool
+/// (model-driven invocation via `tools/call`) and once as an MCP
+/// prompt (user-driven invocation via the host's slash-command
+/// surface — Claude Code only maps prompts, not tools, to
+/// `/mcp__<server>__<name>`).
 pub fn build_tool_registry_from_skills(
     skills: &SkillRegistry,
     add_favorite_dir: Option<PathBuf>,
 ) -> ToolRegistry {
     let mut registry = register_approved_skills(ToolRegistry::new(), skills);
+    registry = register_approved_skills_as_prompts(registry, skills);
     if let Some(dir) = add_favorite_dir {
         registry = registry.register(AddFavoriteTool::new(dir));
     }
