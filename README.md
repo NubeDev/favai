@@ -27,6 +27,25 @@ cargo build -p favai-cli
 cargo test  -p favai
 ```
 
+## Quick demo (no git, no host)
+
+The fastest way to see the idea work end-to-end is the
+self-contained demo. It pre-stages a skill bundle on disk (skipping
+clone/sync entirely) and walks the operator flow: quarantined →
+approve → list → revoke, with the approval row persisted to a
+tempdir JSONL file.
+
+```sh
+bash demo/run-demo.sh
+```
+
+For the MCP wire proof (host's view of `tools/list` + `tools/call`),
+run the in-process integration test:
+
+```sh
+cargo test -p favai --test demo_e2e
+```
+
 ## Running the binary
 
 ```sh

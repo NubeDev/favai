@@ -127,15 +127,24 @@ async fn list(config: FavaiConfig) -> Result<std::process::ExitCode, Box<dyn std
         println!("(no sources configured)");
         return Ok(std::process::ExitCode::SUCCESS);
     }
-    let (agent, _) = boot(config).await?;
-    println!("{:<20}  {:<8}  {:<10}  {:>6}  {}", "NAME", "BRANCH", "HEAD", "SKILLS", "URL");
+    let (agent, skills) = boot(config).await?;
+    // BUNDLES counts SKILL.md directories on disk for each source —
+    // i.e. what a sync produced. The APPROVED / QUARANTINED totals
+    // at the bottom are global (the registry does not attribute
+    // skills back to a single source).
+    println!("{:<20}  {:<8}  {:<10}  {:>7}  {}", "NAME", "BRANCH", "HEAD", "BUNDLES", "URL");
     for s in agent.sources() {
         let head = s.head_sha.as_deref().map(|h| &h[..h.len().min(8)]).unwrap_or("-");
         println!(
-            "{:<20}  {:<8}  {:<10}  {:>6}  {}",
+            "{:<20}  {:<8}  {:<10}  {:>7}  {}",
             s.name, s.branch, head, s.skill_count, s.url
         );
     }
+    println!(
+        "\n{} approved, {} quarantined (across all sources)",
+        skills.list().len(),
+        skills.list_quarantined().len(),
+    );
     Ok(std::process::ExitCode::SUCCESS)
 }
 

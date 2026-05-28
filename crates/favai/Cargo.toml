@@ -56,3 +56,7 @@ path = "tests/sync_e2e_test.rs"
 [[test]]
 name = "approvals_jsonl"
 path = "tests/approvals_jsonl_test.rs"
+
+[[test]]
+name = "demo_e2e"
+path = "tests/demo_e2e_test.rs"
