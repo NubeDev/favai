@@ -2,6 +2,7 @@ mod start;
 mod sync_now;
 mod sources;
 mod reload_event;
+mod periodic;
 
 pub use start::FavaiAgent;
 pub use sources::SourceStatus;

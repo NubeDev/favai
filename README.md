@@ -37,6 +37,13 @@ name        = "nubedev-favai"
 url         = "https://github.com/NubeDev/favai.git"
 branch      = "main"
 skills_path = "skills"
+
+# Optional. When omitted, favai only syncs on demand
+# ('favai sync <name>') and on startup. With this block, the agent
+# also syncs every source every ~15 min (jittered ±10% so a fleet
+# of PCs spreads out at the origin).
+# [periodic]
+# interval_secs = 900
 EOF
 
 # Pull the latest from upstream once, then exit.
@@ -81,3 +88,22 @@ synced sources; promotion is per-bundle, per-hash, per-machine,
 recorded by an operator action on `ApprovalStore`. A `git pull` can
 never make an unreviewed change live. See
 [favai-sync-and-registry.md §Trust model](favai-sync-and-registry.md#trust-model).
+
+### Approving bundles
+
+Approvals are stored at `~/.config/starter/favai/approvals.jsonl`
+(append-only, fsync-on-write) so an `Allow` decision survives a
+`favai-cli` restart.
+
+```sh
+# See what's waiting on you:
+favai quarantined
+
+# Promote one bundle. With no hash arg, favai uses the currently
+# quarantined hash for that id — typically what you want.
+favai approve com.example.skills.refactor
+
+# Revoke later if a follow-up sync brings in a hash you no longer
+# trust:
+favai revoke com.example.skills.refactor
+```

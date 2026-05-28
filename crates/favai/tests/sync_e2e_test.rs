@@ -94,6 +94,7 @@ async fn sync_now_clones_and_publishes_skill() {
             branch:      "main".into(),
             skills_path: "skills".into(),
         }],
+        periodic: None,
     };
 
     let bundle_dir = sources_root.join("upstream").join("skills");

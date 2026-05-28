@@ -6,11 +6,13 @@ use chrono::{DateTime, Utc};
 use starter_mcp::ToolRegistry;
 use starter_skills::SkillRegistry;
 use tokio::sync::{broadcast, Mutex};
+use tokio::task::JoinHandle;
 
 use crate::config::FavaiConfig;
 use crate::error::FavaiError;
 use crate::mcp_bridge::build_tool_registry_from_skills;
 use crate::sync::sweep_source;
+use super::periodic;
 use super::reload_event::ReloadEvent;
 use super::sources::SourceStatus;
 use super::sync_now::run_sync;
@@ -47,6 +49,7 @@ pub struct FavaiAgent {
     pub(crate) skills:           Arc<SkillRegistry>,
     pub(crate) add_favorite_dir: Option<PathBuf>,
     pub(crate) progress:         Arc<Mutex<HashMap<String, SourceProgress>>>,
+    pub(crate) periodic_task:    Option<JoinHandle<()>>,
 }
 
 impl FavaiAgent {
@@ -102,6 +105,19 @@ impl FavaiAgent {
         let (reload_tx, _) = broadcast::channel(16);
         let sync_mutex = Arc::new(Mutex::new(()));
 
+        // Opt-in periodic sync — disabled unless the config has a
+        // [periodic] block (see favai-sync-and-registry.md §"Still
+        // open"). Always-polling is the wrong default.
+        let periodic_task = config.periodic.clone().map(|p| {
+            periodic::spawn(
+                p,
+                config.clone(),
+                Arc::clone(&sync_mutex),
+                reload_tx.clone(),
+                Arc::clone(&skills),
+            )
+        });
+
         Ok(Self {
             config,
             reload_tx,
@@ -109,6 +125,7 @@ impl FavaiAgent {
             skills,
             add_favorite_dir,
             progress: Arc::new(Mutex::new(progress)),
+            periodic_task,
         })
     }
 
@@ -189,9 +206,13 @@ impl FavaiAgent {
         build_tool_registry_from_skills(&self.skills, self.add_favorite_dir.clone())
     }
 
-    /// Stop the agent. v1 holds no background tasks, so this is a
-    /// no-op kept for API symmetry with future periodic-sync work.
-    pub async fn shutdown(self) {}
+    /// Stop the agent. Aborts the periodic-sync task if one was
+    /// spawned; otherwise no-op.
+    pub async fn shutdown(self) {
+        if let Some(h) = self.periodic_task {
+            h.abort();
+        }
+    }
 }
 
 /// Count direct subdirectories of `dir` that contain a `SKILL.md`.
