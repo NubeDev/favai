@@ -2,6 +2,7 @@ pub mod config;
 pub mod sync;
 mod agent;
 
+pub mod approvals;
 pub mod error;
 pub mod git;
 pub mod builder;

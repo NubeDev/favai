@@ -8,9 +8,12 @@ name = "favai"
 path = "src/main.rs"
 
 [dependencies]
-favai          = { path = "../favai" }
-starter-mcp    = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
-starter-skills = { path = "../../../starter/crates/starter-skills" }
-tokio          = { version = "1", features = ["full"] }
+favai            = { path = "../favai" }
+starter-mcp      = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
+starter-skills   = { path = "../../../starter/crates/starter-skills" }
+starter-flow-spi = { path = "../../../starter/crates/starter-flow-spi" }
+starter-spi      = { path = "../../../starter/crates/starter-spi" }
+tokio              = { version = "1", features = ["full"] }
+serde_json         = "1"
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

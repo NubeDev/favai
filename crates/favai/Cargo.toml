@@ -7,8 +7,10 @@ edition = "2021"
 tokio     = { version = "1", features = ["full"] }
 chrono    = { version = "0.4", features = ["serde"] }
 serde     = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml      = "0.8"
 thiserror = "1"
+async-trait = "0.1"
 
 # The adapter that turns an Arc<Skill> into an Arc<dyn Tool> lives
 # in starter-mcp behind feature = "skills". favai is the consumer
@@ -49,3 +51,7 @@ path = "tests/approval_drift_test.rs"
 [[test]]
 name = "sync_e2e"
 path = "tests/sync_e2e_test.rs"
+
+[[test]]
+name = "approvals_jsonl"
+path = "tests/approvals_jsonl_test.rs"
