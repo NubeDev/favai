@@ -15,6 +15,9 @@
 | `ac70d87` | Step G — `crates/favai-cli` with `favai {serve,sync,list,help}` over `starter_mcp::run_stdio` |
 | `57083e8` | Step H — integration test for the quarantine → approve → re-register loop + README quickstart |
 | `7505890` | `favai help` no longer requires a config file; unit tests for `sync::sweep_source` crash recovery |
+| `b56c4f1` | this progress doc, first cut |
+| `15a193c` | `FAVAI_SOURCES_ROOT` env override; end-to-end `sync_now` test against a local bare git repo (`file://`, no network); first-run bug fix — pre-create every quarantined load dir because `SkillRegistry::build()` does **not** tolerate a missing dir |
+| `6749f60` | `FavaiAgent` tracks per-source `head_sha` + `last_fetch_at`; `sources()` returns enriched `SourceStatus` including `skill_count`; `favai list` boots a minimal agent and prints a column table |
 
 Step E (`McpBridgeConfig::from_favai_config`) folded into `8916027`
 because the same `mcp_bridge.rs` rewrite removed the `repo_dirs`
@@ -23,9 +26,11 @@ trust escape hatch and added the constructor in one edit.
 ## Acceptance check
 
 - `cargo build -p favai -p favai-cli` — green.
-- `cargo test  -p favai` — 11 passed, 1 ignored (doctest), 0 failed.
+- `cargo test  -p favai` — 18 passed, 1 ignored (doctest), 0 failed.
 - `cargo build --workspace` — zero warnings.
 - `target/debug/favai help` — prints usage without touching `config.toml`.
+- `target/debug/favai list` — column table of NAME / BRANCH / HEAD / SKILLS / URL with on-disk state.
+- End-to-end sync exercised against a local bare repo via `file://`.
 - Adapter logic (`SkillTool`, `register_approved_skills`,
   `AddFavoriteTool`) is **not** duplicated; this crate only calls into
   `starter-mcp::skills_bridge`.
@@ -98,14 +103,9 @@ recorded in the relevant commit messages, no quiet drift:
   `starter-skills`.
 - **Periodic sync.** v1 ships on-demand + on-startup only. The doc
   reserved a jittered periodic interval as opt-in; not implemented.
-- **`SyncReport` diff fields.** `files_changed` / `bytes_pulled`
-  are hardcoded to zero. Filling them requires diffing the
-  pre-swap live tree against the post-swap staging, which is cheap
-  but wasn't required by the acceptance criteria. Surface is
-  there; populating it is a follow-up.
-- **`approval_drift_test`'s `#[ignore]` placeholder** is now a real
-  test (`sync_reload_reregister_loop`). The `#[ignore]` stub from
-  the baseline tree was removed.
+- **`SyncReport.files_changed` / `bytes_pulled`.** Still hardcoded
+  to zero. The surface is there; populating requires diffing the
+  pre-swap live tree against the post-swap staging.
 
 ## How to point a host at favai
 
