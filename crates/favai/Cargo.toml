@@ -19,7 +19,8 @@ starter-flow-spi = { path = "../../../starter/crates/starter-flow-spi" }
 starter-spi      = { path = "../../../starter/crates/starter-spi" }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile   = "3"
+serde_json = "1"
 
 [[test]]
 name = "config_parse"
