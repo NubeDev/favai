@@ -1,0 +1,16 @@
+[package]
+name    = "favai-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "favai"
+path = "src/main.rs"
+
+[dependencies]
+favai          = { path = "../favai" }
+starter-mcp    = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
+starter-skills = { path = "../../../starter/crates/starter-skills" }
+tokio          = { version = "1", features = ["full"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

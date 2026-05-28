@@ -1,0 +1,16 @@
+# Rust build output
+/target/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
