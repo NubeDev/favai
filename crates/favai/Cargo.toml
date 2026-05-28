@@ -45,3 +45,7 @@ path = "tests/sync/recovery_test.rs"
 [[test]]
 name = "approval_drift"
 path = "tests/approval_drift_test.rs"
+
+[[test]]
+name = "sync_e2e"
+path = "tests/sync_e2e_test.rs"

@@ -83,9 +83,18 @@ pub async fn build_tool_registry(
 ) -> Result<(SkillRegistry, ToolRegistry), FavaiError> {
     let mut builder = SkillRegistry::builder().with_approval_store_arc(approvals);
     for dir in &config.quarantined_dirs {
+        // SkillRegistry::build walks each load_dir with fs::read_dir;
+        // a missing directory is a hard error, not an empty walk.
+        // First-run sources (no sync has happened yet) need the dir
+        // pre-created so the registry comes up empty rather than
+        // failing the boot.
+        std::fs::create_dir_all(dir)
+            .map_err(|e| FavaiError::ConfigRead(format!("create load dir {}: {e}", dir.display())))?;
         builder = builder.load_dir_quarantined(dir.clone());
     }
     if let Some(dir) = &config.add_favorite_dir {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| FavaiError::ConfigRead(format!("create add_favorite dir {}: {e}", dir.display())))?;
         // The add_favorite write target is itself a quarantined
         // load-dir, so freshly-minted favourites round-trip through
         // the same approval gate as everything else.
