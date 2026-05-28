@@ -39,5 +39,9 @@ name = "sync_swap"
 path = "tests/sync/swap_test.rs"
 
 [[test]]
+name = "sync_recovery"
+path = "tests/sync/recovery_test.rs"
+
+[[test]]
 name = "approval_drift"
 path = "tests/approval_drift_test.rs"

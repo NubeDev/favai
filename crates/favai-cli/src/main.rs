@@ -48,6 +48,13 @@ async fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("serve");
 
+    // `help` must not require a config file — it is the user's
+    // recovery path when their config is wrong or missing.
+    if matches!(cmd, "help" | "--help" | "-h") {
+        print_help();
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
+
     let config_path = parse_config_flag(&args)?.unwrap_or_else(default_config_path);
     let config = FavaiConfig::from_file(&config_path)?;
 
@@ -55,10 +62,6 @@ async fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
         "serve" => serve(config).await,
         "sync"  => sync(config, args.get(1).cloned()).await,
         "list"  => list(config),
-        "help" | "--help" | "-h" => {
-            print_help();
-            Ok(std::process::ExitCode::SUCCESS)
-        }
         other => {
             eprintln!("favai: unknown command '{other}'");
             print_help();
