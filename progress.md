@@ -18,6 +18,9 @@
 | `b56c4f1` | this progress doc, first cut |
 | `15a193c` | `FAVAI_SOURCES_ROOT` env override; end-to-end `sync_now` test against a local bare git repo (`file://`, no network); first-run bug fix — pre-create every quarantined load dir because `SkillRegistry::build()` does **not** tolerate a missing dir |
 | `6749f60` | `FavaiAgent` tracks per-source `head_sha` + `last_fetch_at`; `sources()` returns enriched `SourceStatus` including `skill_count`; `favai list` boots a minimal agent and prints a column table |
+| `3fb5361` | progress.md interim refresh |
+| `78ce20d` | persistent `JsonlApprovalStore` (append-only JSONL, fsync-on-write) + operator commands `favai {quarantined,approve,revoke}`; `favai-cli` now boots the persistent store instead of `InMemoryApprovalStore` |
+| `e0f73d3` | opt-in `[periodic]` config block; one tokio task per agent that syncs every source every `interval_secs` jittered uniformly on `[0.9, 1.1] * interval_secs`; `agent.shutdown()` aborts the handle |
 
 Step E (`McpBridgeConfig::from_favai_config`) folded into `8916027`
 because the same `mcp_bridge.rs` rewrite removed the `repo_dirs`
@@ -26,7 +29,7 @@ trust escape hatch and added the constructor in one edit.
 ## Acceptance check
 
 - `cargo build -p favai -p favai-cli` — green.
-- `cargo test  -p favai` — 18 passed, 1 ignored (doctest), 0 failed.
+- `cargo test  -p favai` — 17 passed, 1 ignored (doctest), 0 failed.
 - `cargo build --workspace` — zero warnings.
 - `target/debug/favai help` — prints usage without touching `config.toml`.
 - `target/debug/favai list` — column table of NAME / BRANCH / HEAD / SKILLS / URL with on-disk state.
@@ -94,18 +97,25 @@ recorded in the relevant commit messages, no quiet drift:
   stdio for a `Arc<RwLock<ToolRegistry>>`-shaped transport or wire
   the reload event into a rebuild on the active registry. Not
   required by v1.
-- **Persistent `ApprovalStore`.** `favai-cli` currently wires an
-  `InMemoryApprovalStore`. v1 dogfood (one personal pack across two
-  PCs) is fine with that — every restart re-approves — but the
-  "approval click per bundle per machine per change" promise from
-  the doc only holds with a persistent store. Wiring one is a
-  config knob away when the persistent variant lands in
-  `starter-skills`.
-- **Periodic sync.** v1 ships on-demand + on-startup only. The doc
-  reserved a jittered periodic interval as opt-in; not implemented.
 - **`SyncReport.files_changed` / `bytes_pulled`.** Still hardcoded
-  to zero. The surface is there; populating requires diffing the
-  pre-swap live tree against the post-swap staging.
+   to zero. The surface is there; populating requires diffing the
+   pre-swap live tree against the post-swap staging.
+
+## Closed in this session (post-interim)
+
+- **Persistent `ApprovalStore`.** Landed as
+   `favai::approvals::JsonlApprovalStore` (`78ce20d`). Append-only
+   JSONL at `$HOME/.config/starter/favai/approvals.jsonl`, replayed
+   on startup, `sync_data()` per write. `favai-cli` wires it through
+   a single `boot()` helper so `serve`, `sync`, `list`, `approve`,
+   `revoke`, and `quarantined` all see consistent state. Three new
+   tests cover record→reopen round-trip, revoke persistence, and
+   `list()`.
+- **Periodic sync.** Landed as opt-in `[periodic] interval_secs`
+   (`e0f73d3`). Per-agent tokio task, ±10% jitter, failures logged
+   and the schedule keeps running. Documented in README. Disabled
+   by default — `favai sync <name>` + on-startup syncs remain the
+   only behaviour when the block is absent.
 
 ## How to point a host at favai
 
