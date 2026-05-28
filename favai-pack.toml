@@ -1,0 +1,9 @@
+[pack]
+name        = "nubedev/favai"
+description = "Personal AI favorites — workflows for shipping Rust + TS."
+maintainer  = "ap@nube-io.com"
+license     = "MIT"
+version     = "0.1.0"
+
+[trust]
+declared = "personal"

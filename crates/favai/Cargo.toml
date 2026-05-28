@@ -1,0 +1,41 @@
+[package]
+name    = "favai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio     = { version = "1", features = ["full"] }
+notify    = "6"
+chrono    = { version = "0.4", features = ["serde"] }
+serde     = { version = "1", features = ["derive"] }
+toml      = "0.8"
+thiserror = "1"
+
+# The adapter that turns an Arc<Skill> into an Arc<dyn Tool> lives
+# in starter-mcp behind feature = "skills". favai is the consumer
+# crate that wires it; the adapter is not duplicated here.
+starter-mcp    = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
+starter-skills = { path = "../../../starter/crates/starter-skills" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "config_parse"
+path = "tests/config/parse_test.rs"
+
+[[test]]
+name = "config_validate"
+path = "tests/config/validate_test.rs"
+
+[[test]]
+name = "sync_stage"
+path = "tests/sync/stage_test.rs"
+
+[[test]]
+name = "sync_swap"
+path = "tests/sync/swap_test.rs"
+
+[[test]]
+name = "approval_drift"
+path = "tests/approval_drift_test.rs"
