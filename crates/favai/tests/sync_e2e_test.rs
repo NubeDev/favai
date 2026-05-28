@@ -133,5 +133,12 @@ async fn sync_now_clones_and_publishes_skill() {
         "no skill is approved before approve() is called"
     );
 
+    // Per-source progress is recorded after sync.
+    let sources = agent.sources();
+    let s = sources.iter().find(|s| s.name == "upstream").unwrap();
+    assert_eq!(s.head_sha.as_deref(), Some(report.new_head_sha.as_str()));
+    assert!(s.last_fetch_at.is_some());
+    assert_eq!(s.skill_count, 1, "one SKILL.md committed upstream");
+
     std::env::remove_var("FAVAI_SOURCES_ROOT");
 }

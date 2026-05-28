@@ -61,7 +61,7 @@ async fn run() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     match cmd {
         "serve" => serve(config).await,
         "sync"  => sync(config, args.get(1).cloned()).await,
-        "list"  => list(config),
+        "list"  => list(config).await,
         other => {
             eprintln!("favai: unknown command '{other}'");
             print_help();
@@ -115,12 +115,28 @@ async fn sync(
     Ok(std::process::ExitCode::SUCCESS)
 }
 
-fn list(config: FavaiConfig) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+async fn list(config: FavaiConfig) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     if config.sources.is_empty() {
         println!("(no sources configured)");
+        return Ok(std::process::ExitCode::SUCCESS);
     }
-    for source in &config.sources {
-        println!("{}\t{}\t{}\t{}", source.name, source.branch, source.url, source.skills_path);
+
+    // Boot a minimal agent so the listing reflects on-disk state
+    // (head sha + skill count) rather than just the config file.
+    let bridge_config = McpBridgeConfig::from_favai_config(&config)?;
+    let approvals = Arc::new(InMemoryApprovalStore::new());
+    let (skills, _) = build_tool_registry(&bridge_config, approvals).await?;
+    let skills = Arc::new(skills);
+    let agent =
+        FavaiAgent::start(config, Arc::clone(&skills), bridge_config.add_favorite_dir).await?;
+
+    println!("{:<20}  {:<8}  {:<10}  {:>6}  {}", "NAME", "BRANCH", "HEAD", "SKILLS", "URL");
+    for s in agent.sources() {
+        let head = s.head_sha.as_deref().map(|h| &h[..h.len().min(8)]).unwrap_or("-");
+        println!(
+            "{:<20}  {:<8}  {:<10}  {:>6}  {}",
+            s.name, s.branch, head, s.skill_count, s.url
+        );
     }
     Ok(std::process::ExitCode::SUCCESS)
 }

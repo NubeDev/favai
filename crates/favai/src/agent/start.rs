@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use starter_mcp::ToolRegistry;
 use starter_skills::SkillRegistry;
 use tokio::sync::{broadcast, Mutex};
@@ -13,6 +15,16 @@ use super::reload_event::ReloadEvent;
 use super::sources::SourceStatus;
 use super::sync_now::run_sync;
 use crate::sync::SyncReport;
+
+/// Per-source progress the agent tracks across syncs. Persisted only
+/// in memory — restart re-derives `head_sha` from the live dir's
+/// `.git/HEAD` and leaves `last_fetch_at` as `None` until the next
+/// sync.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SourceProgress {
+    pub head_sha:      Option<String>,
+    pub last_fetch_at: Option<DateTime<Utc>>,
+}
 
 /// Agent that owns per-source sync state and the reload broadcaster.
 ///
@@ -34,6 +46,7 @@ pub struct FavaiAgent {
     pub(crate) sync_mutex:       Arc<Mutex<()>>,
     pub(crate) skills:           Arc<SkillRegistry>,
     pub(crate) add_favorite_dir: Option<PathBuf>,
+    pub(crate) progress:         Arc<Mutex<HashMap<String, SourceProgress>>>,
 }
 
 impl FavaiAgent {
@@ -68,6 +81,24 @@ impl FavaiAgent {
             sweep_source(&sources_root, &source.name)?;
         }
 
+        // Seed per-source progress: for any source whose live dir
+        // already exists, resolve its current HEAD so `sources()` and
+        // `favai list` show useful data before the next sync.
+        let mut progress: HashMap<String, SourceProgress> = HashMap::new();
+        for source in &config.sources {
+            let live = sources_root.join(&source.name);
+            if live.join(".git").exists() {
+                if let Ok(sha) = crate::git::head_sha(&live).await {
+                    if !sha.is_empty() {
+                        progress.insert(
+                            source.name.clone(),
+                            SourceProgress { head_sha: Some(sha), last_fetch_at: None },
+                        );
+                    }
+                }
+            }
+        }
+
         let (reload_tx, _) = broadcast::channel(16);
         let sync_mutex = Arc::new(Mutex::new(()));
 
@@ -77,6 +108,7 @@ impl FavaiAgent {
             sync_mutex,
             skills,
             add_favorite_dir,
+            progress: Arc::new(Mutex::new(progress)),
         })
     }
 
@@ -94,20 +126,41 @@ impl FavaiAgent {
             Some(self.skills.clone()),
         )
         .await?;
+
+        // Record progress so a later `sources()` / `favai list` shows
+        // the fresh head sha and fetch timestamp without re-shelling
+        // out to git.
+        let mut progress = self.progress.lock().await;
+        progress.insert(
+            source_name.to_owned(),
+            SourceProgress {
+                head_sha:      Some(report.new_head_sha.clone()),
+                last_fetch_at: Some(report.at),
+            },
+        );
         Ok(report)
     }
 
     pub fn sources(&self) -> Vec<SourceStatus> {
+        let progress = self.progress.try_lock().ok();
+        let sources_root = crate::builder::sources_root().ok();
         self.config
             .sources
             .iter()
-            .map(|s| SourceStatus {
-                name:          s.name.clone(),
-                url:           s.url.clone(),
-                branch:        s.branch.clone(),
-                last_fetch_at: None,
-                head_sha:      None,
-                skill_count:   0,
+            .map(|s| {
+                let snap = progress.as_ref().and_then(|m| m.get(&s.name).cloned()).unwrap_or_default();
+                let skill_count = sources_root
+                    .as_ref()
+                    .map(|r| count_bundles(&r.join(&s.name).join(&s.skills_path)))
+                    .unwrap_or(0);
+                SourceStatus {
+                    name:          s.name.clone(),
+                    url:           s.url.clone(),
+                    branch:        s.branch.clone(),
+                    last_fetch_at: snap.last_fetch_at,
+                    head_sha:      snap.head_sha,
+                    skill_count,
+                }
             })
             .collect()
     }
@@ -139,4 +192,15 @@ impl FavaiAgent {
     /// Stop the agent. v1 holds no background tasks, so this is a
     /// no-op kept for API symmetry with future periodic-sync work.
     pub async fn shutdown(self) {}
+}
+
+/// Count direct subdirectories of `dir` that contain a `SKILL.md`.
+/// Matches `SkillRegistry::walk_load_dir`'s one-level scan rule.
+fn count_bundles(dir: &std::path::Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter(|e| e.path().join("SKILL.md").is_file())
+        .count()
 }
