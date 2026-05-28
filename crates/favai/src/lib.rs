@@ -1,6 +1,5 @@
 mod config;
 pub mod sync;
-mod watch;
 mod agent;
 
 pub mod error;
@@ -9,6 +8,6 @@ pub mod builder;
 pub mod mcp_bridge;
 
 pub use config::FavaiConfig;
-pub use agent::{FavaiAgent, ReloadEvent, ReloadTrigger, SourceStatus, SyncReport};
-pub use builder::apply_to_builder;
+pub use agent::{FavaiAgent, ReloadEvent, SourceStatus, SyncReport};
+pub use builder::{apply_to_builder, sources_root};
 pub use error::FavaiError;

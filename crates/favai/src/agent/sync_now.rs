@@ -7,8 +7,8 @@ use tokio::sync::{broadcast, Mutex};
 use crate::config::FavaiConfig;
 use crate::error::FavaiError;
 use crate::git;
-use crate::sync::{clone_source, fetch_source, validate_staging, atomic_swap, SyncReport};
-use super::reload_event::{ReloadEvent, ReloadTrigger};
+use crate::sync::{clone_source, validate_staging, atomic_swap, SyncReport};
+use super::reload_event::ReloadEvent;
 
 pub async fn run_sync(
     config: &FavaiConfig,
@@ -29,21 +29,23 @@ pub async fn run_sync(
     let started = Instant::now();
     let _guard  = sync_mutex.lock().await;
 
-    if live_dir.exists() {
-        fetch_source(&staging_dir, &source.branch).await?;
-    } else {
-        clone_source(&source.url, &source.branch, &staging_dir).await?;
-    }
-
+    // Always-fresh shallow clone (doc §"Agent flow" step 2).
+    // No fetch path: the staging dir is rebuilt every sync.
+    clone_source(&source.url, &source.branch, &staging_dir).await?;
     validate_staging(&staging_dir, &source.skills_path)?;
     atomic_swap(&live_dir, &staging_dir)?;
 
     let head_sha = git::head_sha(&live_dir).await.unwrap_or_default();
 
+    // v1 ReloadEvent: source name + timestamp. The diff fields stay
+    // empty until v2 wires incremental ToolRegistry updates; the
+    // surface is frozen so v2 is non-breaking.
     let _ = reload_tx.send(ReloadEvent {
-        trigger: ReloadTrigger::SyncCompleted,
-        sources: vec![source.name.clone()],
-        at:      Utc::now(),
+        source:       source.name.clone(),
+        added:        Vec::new(),
+        removed:      Vec::new(),
+        changed_hash: Vec::new(),
+        at:           Utc::now(),
     });
 
     Ok(SyncReport {

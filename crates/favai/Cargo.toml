@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 tokio     = { version = "1", features = ["full"] }
-notify    = "6"
 chrono    = { version = "0.4", features = ["serde"] }
 serde     = { version = "1", features = ["derive"] }
 toml      = "0.8"
@@ -14,8 +13,10 @@ thiserror = "1"
 # The adapter that turns an Arc<Skill> into an Arc<dyn Tool> lives
 # in starter-mcp behind feature = "skills". favai is the consumer
 # crate that wires it; the adapter is not duplicated here.
-starter-mcp    = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
-starter-skills = { path = "../../../starter/crates/starter-skills" }
+starter-mcp      = { path = "../../../starter/crates/starter-mcp", features = ["skills"] }
+starter-skills   = { path = "../../../starter/crates/starter-skills" }
+starter-flow-spi = { path = "../../../starter/crates/starter-flow-spi" }
+starter-spi      = { path = "../../../starter/crates/starter-spi" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -18,22 +18,59 @@ use starter_mcp::skills_bridge::{register_approved_skills, AddFavoriteTool};
 use starter_mcp::ToolRegistry;
 use starter_skills::{ApprovalStore, InMemoryApprovalStore, SkillRegistry};
 
+use crate::config::FavaiConfig;
 use crate::error::FavaiError;
 
 /// Configuration for [`build_tool_registry`].
+///
+/// Per `favai-sync-and-registry.md` §"Trust model", every load
+/// directory is treated as quarantined-on-load. There is no
+/// non-quarantined path: frontmatter `trust: approved` is ignored,
+/// approval is per-bundle, per-hash, per-machine.
 #[derive(Debug, Clone, Default)]
 pub struct McpBridgeConfig {
-    /// Repo-owned skill directories. Loaded via `load_dir(...)` —
-    /// frontmatter `trust: approved` is honoured.
-    pub repo_dirs: Vec<PathBuf>,
-    /// User-owned skill directories. Loaded via
-    /// `load_dir_quarantined(...)` — frontmatter is ignored, every
-    /// bundle starts quarantined until the operator approves.
-    pub user_dirs: Vec<PathBuf>,
+    /// Synced + user-owned skill directories. All loaded via
+    /// `load_dir_quarantined(...)`: every bundle starts quarantined
+    /// until the operator records an approval row.
+    pub quarantined_dirs: Vec<PathBuf>,
     /// If `Some`, register the `starter.add_favorite` meta-tool
     /// against this directory. New SKILL.md bundles written by the
     /// LLM land here and remain quarantined until approved.
     pub add_favorite_dir: Option<PathBuf>,
+}
+
+impl McpBridgeConfig {
+    /// Build an [`McpBridgeConfig`] from a parsed [`FavaiConfig`].
+    ///
+    /// Every `[[source]]` block becomes one entry in
+    /// [`quarantined_dirs`], resolved as
+    /// `<sources_root>/<name>/<skills_path>`. `add_favorite_dir`
+    /// defaults to `$HOME/.config/starter/favai/user-skills` —
+    /// outside `sources/` so syncs cannot clobber it.
+    pub fn from_favai_config(config: &FavaiConfig) -> Result<Self, FavaiError> {
+        let root = crate::builder::sources_root()?;
+        let mut quarantined_dirs = Vec::with_capacity(config.sources.len());
+        for source in &config.sources {
+            let dir = root.join(&source.name).join(&source.skills_path);
+            if !dir.starts_with(&root) {
+                return Err(FavaiError::PathEscape(dir));
+            }
+            quarantined_dirs.push(dir);
+        }
+
+        let home = std::env::var("HOME")
+            .map_err(|_| FavaiError::ConfigRead("HOME not set".into()))?;
+        let add_favorite_dir = PathBuf::from(home)
+            .join(".config")
+            .join("starter")
+            .join("favai")
+            .join("user-skills");
+
+        Ok(Self {
+            quarantined_dirs,
+            add_favorite_dir: Some(add_favorite_dir),
+        })
+    }
 }
 
 /// Build a `(SkillRegistry, ToolRegistry)` pair ready to hand to
@@ -45,10 +82,13 @@ pub async fn build_tool_registry(
     approvals: Arc<dyn ApprovalStore>,
 ) -> Result<(SkillRegistry, ToolRegistry), FavaiError> {
     let mut builder = SkillRegistry::builder().with_approval_store_arc(approvals);
-    for dir in &config.repo_dirs {
-        builder = builder.load_dir(dir.clone());
+    for dir in &config.quarantined_dirs {
+        builder = builder.load_dir_quarantined(dir.clone());
     }
-    for dir in &config.user_dirs {
+    if let Some(dir) = &config.add_favorite_dir {
+        // The add_favorite write target is itself a quarantined
+        // load-dir, so freshly-minted favourites round-trip through
+        // the same approval gate as everything else.
         builder = builder.load_dir_quarantined(dir.clone());
     }
     let skills = builder
@@ -56,11 +96,24 @@ pub async fn build_tool_registry(
         .await
         .map_err(|e| FavaiError::ConfigRead(format!("skill registry build: {e}")))?;
 
-    let mut registry = register_approved_skills(ToolRegistry::new(), &skills);
-    if let Some(dir) = &config.add_favorite_dir {
-        registry = registry.register(AddFavoriteTool::new(dir.clone()));
-    }
+    let registry = build_tool_registry_from_skills(&skills, config.add_favorite_dir.clone());
     Ok((skills, registry))
+}
+
+/// Build a fresh [`ToolRegistry`] off an already-loaded
+/// [`SkillRegistry`]. Called once at startup and again after every
+/// `SkillRegistry::reload()` driven by a sync, so revoked or newly
+/// quarantined bundles drop out of `tools/list` without a server
+/// restart.
+pub fn build_tool_registry_from_skills(
+    skills: &SkillRegistry,
+    add_favorite_dir: Option<PathBuf>,
+) -> ToolRegistry {
+    let mut registry = register_approved_skills(ToolRegistry::new(), skills);
+    if let Some(dir) = add_favorite_dir {
+        registry = registry.register(AddFavoriteTool::new(dir));
+    }
+    registry
 }
 
 /// Convenience for callers that don't need a persistent approval

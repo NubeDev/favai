@@ -26,14 +26,39 @@ pub async fn run(cwd: &Path, args: &[&str]) -> Result<(), FavaiError> {
     }
 }
 
-/// Confirm git is on PATH at agent startup.
+/// Confirm git is on PATH and able to read its own config at agent
+/// startup. Two-step probe per `favai-sync-and-registry.md`:
+///
+/// 1. `git --version` — binary is reachable.
+/// 2. `git config --get-regexp .` — git can actually read its config
+///    (catches corrupt `~/.gitconfig`, missing `HOME`, sandboxed CI
+///    runners). Empty output is tolerated; non-zero exit is not.
 pub async fn check_available() -> Result<(), FavaiError> {
     let out = tokio::process::Command::new("git")
         .arg("--version")
         .output()
         .await
         .map_err(|_| FavaiError::GitNotFound)?;
-    if out.status.success() { Ok(()) } else { Err(FavaiError::GitNotFound) }
+    if !out.status.success() {
+        return Err(FavaiError::GitNotFound);
+    }
+
+    let out = tokio::process::Command::new("git")
+        .args(["config", "--get-regexp", "."])
+        .env_clear()
+        .envs(safe_env())
+        .output()
+        .await
+        .map_err(|e| FavaiError::GitFailed(format!("git config probe: {e}")))?;
+    // Exit 0 = config rows present; exit 1 = no matching rows (still
+    // a usable git). Anything else means git couldn't read its config.
+    match out.status.code() {
+        Some(0) | Some(1) => Ok(()),
+        _ => Err(FavaiError::GitFailed(format!(
+            "git config probe failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ))),
+    }
 }
 
 /// Resolve HEAD sha inside `repo_dir`.
